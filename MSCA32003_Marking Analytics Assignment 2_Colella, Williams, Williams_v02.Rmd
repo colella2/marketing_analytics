@@ -1,0 +1,516 @@
+---
+title: "MSCA 32003 Marketing Analytics Assignment 2"
+author: "Michael N. Colella, Christopher Williams, Jonathan Williams"
+date: "May 13, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. <span style="font-size:1.2em;"><b>Use journey or chocolate data from package conjoint. Perform the following analyses: (2 points)</b></span>  
+<span style="font-size:1.10em;"><b> 
+    1. Partworth estimation for all individuals separately
+    2. Partworth estimation by combining all individual responses into an aggregate
+    3. Partworth estimation by using linear mixed models. In this case, you should treat each individual as a separate group for defining the random effects
+    4. Partworth estimation of the mixed effects models by using MCMChregress</b></span>
+
+<i><b>Data Exploration</b></i><br>
+
+```{r message=FALSE, warning=FALSE}
+library(conjoint)
+
+# chocolate data from package conjoint
+data(chocolate)
+
+ls()
+```
+
+This data import is comprised of the following:
+
+* clevn - vector of for the attributes' levels (14 levels)
+* cpref - vector of preferences
+* cprefm - matrix of preferences (87 respondents and 16 profiles),
+* cprof - matrix of profiles (5 attributes and 16 profiles)
+* csimp - matrix of simulation profiles (5 attributes and 4 profiles)
+
+```{r}
+options(max.print=99999) # set to get all 87 to print
+print(head(clevn))
+```
+The cholocate datset has 5 attributes with the following levels: kind (milk, walnut, delicaties, dark), price (low, average, high), packing (paperback, hardback), weight(light, middle, heavy), and calorie (little, much). This vector contains the levels.
+
+```{r}
+options(max.print=99999) # set to get all 87 to print
+print(head(cpref))
+```
+Each person is asked the utility or preference of the 16 profiles, there will be 87 people x 16 profiles = 1392 preferences.
+
+```{r}
+options(max.print=99999) # set to get all 87 to print
+print(head(cprefm))
+```
+
+This dataset has already selected profiles or concepts that the people rated. A full factorial design would require 144 profiles (4 x 3 x 2 x 3 x 2). Hopefully, when these profiles were chosen in the experimental design process, orthoganility was maintained. With conjoint analysis, you only need a subset of the profiles to mantain orthogonality and predict all 144 profiles.
+
+```{r}
+options(max.print=99999) # set to get all 16 to print if needed
+print(head(cprof))
+```
+
+Dummy variables were not used as all the attribute level ranges are present. Since we are calculating coeffiecients and if dummy variables are used, you only really need 3 + 2 + 1 + 2 + 1 = 9 + intercept = 10 profiles. 
+
+```{r}
+print(head(csimp))
+```
+The chocolate dataset already has some profiles that were not presented to people to simulate preferences. These will be used in question 4 to calculate market shares estimates. 
+
+<i><b>Data Preparation</b></i><br>
+
+Based on how the dataset provided with a given set of profiles, we will create our own design matrix with dummy variables. 
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+cprof.factor=data.frame(apply(cprof,2,factor))
+contrasts(cprof.factor[,1])
+contrasts(cprof.factor[,2])
+contrasts(cprof.factor[,3])
+contrasts(cprof.factor[,4])
+contrasts(cprof.factor[,5])
+des.mm=model.matrix(~kind+price+packing+weight+calorie,data=cprof.factor,contrasts.arg=list(kind=contr.sum,price=contr.sum,packing=contr.sum,weight=contr.sum,calorie=contr.sum))
+```
+The Design matrix is coded using dummy variables. For instance, only 3 kinds, 2 prices, 1 packing, 2 weights, and 1 calorie are needed. This output reflects page 25 of the week 3 lecture slide although using a different dataset and the profiles were already chosen within the chocolate dataset. Therefore, we didn't use the `optFederov` code to generate an orthogonal subset of profiles from the 144 possible profiles. 
+```{r}
+des.mm[1:16,]
+```
+The correlation structure also looks good. Across levels, the correlation is low. This output reflects page 26 of the week 3 lecture slides, but using a different dataset. 
+```{r message=FALSE, warning=FALSE}
+print(cor(des.mm))
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Question 1, Part 1: Partworth estimation for all individuals separately</i></b></span>
+    
+```{r message=FALSE, warning=FALSE}
+
+##Perform 87 regressions
+##Then compute overall R-square
+
+cprefm_mat=do.call(rbind,cprefm) #convert cprefm from list to matrix form
+dim(cprefm_mat)
+z=lm(cprefm_mat ~ des.mm)
+summary(z)
+z2=predict(lm(cprefm_mat ~ des.mm))
+cor(as.vector(do.call(rbind,cprefm)),as.vector(z2))^2
+```
+
+If we used the `conjoint` package built in function and look at the first person and its Beta values, you'll see that the values match the previous results. For instance for the "kind" attribute levels, the milk attribute's Beta in the below match the above at 2.00, etc. Even though dark is not listed in the above or what would be kind4, it will need to be -6.00 for the Betas for kind to equal to zero. 
+   
+```{r message=FALSE, warning=FALSE}
+print('Previous results - using provided R code, Betas for 1st person:', quote = FALSE)
+summary(z)[0:1]
+
+# caPartUtilities(y, x, z) – the function calculates the part-worths utility matrix of attribute levels in the cross-section of respondents and includes an intercept
+options(max.print=99999) # set to get all 87 to print
+partutilities=caPartUtilities(y=cpref,x=cprof,z=clevn)
+print('Conjoint package - using builtin function, Betas for 1st person:', quote = FALSE)
+print(partutilities[1,])
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Question 1, Part 2: Partworth estimation by combining all individual responses into an aggregate</i></b></span>
+
+With the aggregate model, we get a single value for the Betas which is expected. 
+    
+```{r message=FALSE, warning=FALSE}
+# caUtilities(y, x, z) - the function calculates part-worths utilities of attributes’ levels at an aggregated level
+aggrutilities = caUtilities(y=cpref,x=cprof,z=clevn)
+print(aggrutilities)
+```
+    
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Question 1, Part 3: Partworth estimation by using linear mixed models. In this case, you should treat each individual as a separate group for defining the random effects</i></b></span>
+
+Before running the linear effects model, a file needs to be created that can be used by the `lme4` package. The Design Matrix is repeated 87 times since there are 87 people responding to the profiles. Since there are 16 profiles, there will be 16 x 87 or 1,392 rows. The preferences or "Rating" is included and is obviously 1,392 responses. Finally, a "respid" is include to keep track of each person and their responses.
+```{r message=FALSE, warning=FALSE}
+# building a file used for linear effects regression
+d <- des.mm[1:16,2:10]
+n1 <- 87
+n2 <- 16
+respid <- rep(1:n1, each = n2)
+m1 <- do.call("rbind", replicate(n1, d, simplify = FALSE))
+m2 <- cbind(m1, respid)
+chocolatedata <- cbind(cpref, m2)
+variable_names <- c("Rating","kind1","kind2","kind3","price1","price2","packing1","weight1",
+                    "weight2","calorie1","respid")
+
+colnames(chocolatedata) <- variable_names
+
+# reset the index of the rows
+rownames(chocolatedata) <- 1:(n1*n2)
+print(chocolatedata[0:32,])
+
+# write out file to visually inspect output
+write.csv(chocolatedata,"..\\chocolatedata.csv", row.names = TRUE)
+```
+
+Using the linear mix effects (`lme4`) package and its linear effects regression function (`lmer`) while specifying the variable that defines the subset groups of people as the `respid`, intercepts are generated for each person and each attribute. This accounts for both the individual and aggregate: a random effects model. 
+
+```{r message=FALSE, warning=FALSE}
+require(lme4)
+chocolatedata=read.csv(file="..\\chocolatedata.csv")
+chocolatedata=chocolatedata[,-1]
+z=lmer(Rating~kind1+kind2+kind3+price1+price2+packing1+weight1+weight2+calorie1+ (1+ kind1+kind2+kind3+price1+price2+packing1+weight1+weight2+calorie1|respid), control=lmerControl(optCtrl = list(maxfun=100000)), data=chocolatedata)
+```
+
+The below is the single aggregate regression equation or fixed effect:
+```{r message=FALSE, warning=FALSE}
+fixef(z)
+```
+
+Each person has a different regression or random effect:
+```{r message=FALSE, warning=FALSE}
+head(ranef(z)$respid)
+```
+
+This is combination of the fixed and random effect or mixed effect and is a maximum likelyhood estimator:
+```{r message=FALSE, warning=FALSE}
+mixedeffect_part_worth <- coef(z)$respid
+head(coef(z)$respid)
+```
+
+This is the $R^2$ for a better generalized model:
+```{r message=FALSE, warning=FALSE}
+cor(chocolatedata[,1],predict(z))^2 
+```
+
+Overall, this appear to have converged and worked, which is sometimes not the case. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Question 1, Part 4: Partworth estimation of the mixed effects models by using MCMChregress</i></b></span>
+
+```{r message=FALSE, warning=FALSE}
+require(MCMCpack)
+z=MCMCregress(Rating~kind1+kind2+kind3+price1+price2+packing1+weight1+weight2+calorie1, data=chocolatedata)
+
+set.seed(1)
+z=MCMChregress(fixed= Rating~kind1+kind2+kind3+price1+price2+packing1+weight1+weight2+calorie1, random = ~1+kind1+kind2+kind3+price1+price2+packing1+weight1+weight2+calorie1, group="respid", r=10,R=10*diag(10), data=chocolatedata)
+```
+
+The below is the mixed effects simulated correlation using MCMC:
+```{r message=FALSE, warning=FALSE}
+cor(chocolatedata[,1],z$Y.pred)^2
+```
+
+The below shows the 71st person's mean and median mixed effects simulated values:
+```{r message=FALSE, warning=FALSE}
+colnames(z$mcmc)[1:87]
+z$mcmc[1:87,grep(".71",colnames(z$mcmc),fixed=TRUE)]
+apply(z$mcmc[,grep(".71",colnames(z$mcmc),fixed=TRUE)],2,mean)
+apply(z$mcmc[,grep(".71",colnames(z$mcmc),fixed=TRUE)],2,median)
+```
+
+2. <span style="font-size:1.2em;"><b>Assess performance of 1-4 in step (1) using 2 randomly selected profiles for each individual as “Holdout” profiles for each consumer. The winner should have the lowest error on the holdout profiles. (2 points)</b></span>
+
+Dataset needs to have the same features inorder to test the ratings, therefore we will create a new dataframe to perform the train/test split to be consistent across the various individual, aggregate, and random effects models. 
+
+```{r message=FALSE, warning=FALSE}
+n1 <- 87
+n2 <- 16
+respid <- rep(1:n1, each = n2)
+m3 <- do.call("rbind", replicate(n1, cprof, simplify = FALSE))
+m4 <- cbind(m3, respid)
+chocolatedata2 <- cbind(cpref, m4)
+variable_names2 <- c("Rating","kind","price","packing","weight",
+                     "calorie","respid")
+colnames(chocolatedata2) <- variable_names2
+
+# reset the index of the rows
+rownames(chocolatedata2) <- 1:(n1*n2)
+
+# show the first 32 to see if respid is appending correctly
+print(chocolatedata2[0:32,])
+```
+
+Sampling a sequence from 1 to 16 87 times and putting these random pulls by person into the dataframe for later test/train split.
+
+```{r message=FALSE, warning=FALSE}
+
+# create a sequence of 16 numbers: 1, 2, 3, 4, 5, 6...
+s <- seq(1,n2,1)
+# create an empty array
+rand <- vector()
+for (i in 1:n1){
+    # append sampled sequence
+    # each sample will be in a ramdom order
+    rand <- c(rand, sample(s))
+    #rand <- c(rand, s)
+}
+#rand <- data.frame(rand)
+#dim(rand)
+chocolatedata3 <- cbind(chocolatedata2, rand)
+variable_names3 <- c("Rating","kind","price","packing","weight",
+                     "calorie","respid","rand_by_respid")
+colnames(chocolatedata3) <- variable_names3
+
+# show first 32 to valify that rand profile numbers were being applied to each respid correctly
+print(chocolatedata3[0:32,])
+
+```
+
+Within each person's 16 profile choices there is a random range of numbers from 1-16 with no repeating values. This will allow us to pull profiles randomly by person. 
+```{r message=FALSE, warning=FALSE}
+train <- chocolatedata3[chocolatedata3$rand_by_respid < 15,]
+test <- chocolatedata3[chocolatedata3$rand_by_respid >= 15,]
+```
+
+Dimensions of the entire dataset: 
+```{r}
+dim(chocolatedata3)
+```
+Dimensions of the Train dataset: 
+```{r}
+dim(train)
+```
+Dimensions of the Test dataset: 
+```{r}
+dim(test)
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Assess performance of 1 in step (1)</i></b></span>
+
+Individual MSE:
+```{r message=FALSE, warning=FALSE}
+
+coeff_p1 <- matrix(nrow= 87, ncol = 6)
+pred_p1 <- numeric(87)
+
+for (i in 1:87){
+    model_p1 <- lm(Rating~kind+price+packing+weight+calorie, data =train[train$respid==i,])
+    coeff_p1[i,] <- model_p1$coefficient
+    pred_p1[i] <- predict(model_p1, test[test$respid==i,])
+}
+
+mse_part1 <-mean(test$Rating-pred_p1)^2
+print(mse_part1)
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Assess performance of 2 in step (1)</i></b></span>
+
+Aggregate MSE:
+```{r message=FALSE, warning=FALSE}
+
+model_p2 <- lm(Rating~kind+price+packing+weight+calorie, data =train)
+model_p2_pred <- predict(model_p2, test)
+
+mse_part2 <-mean(test$Rating-model_p2_pred)^2
+print(mse_part2)
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Assess performance of 3 in step (1)</i></b></span>
+
+Random Effects MSE:
+```{r message=FALSE, warning=FALSE}
+require("lme4")
+
+model_p3 =lmer(Rating~kind+price+packing+weight+calorie+(1+kind+price+packing+weight+calorie|respid), control=lmerControl(optCtrl = list(maxfun=100000)), data=train) 
+model_p3_pred <- predict(model_p3, test)
+mse_part3 <- mean(test$Rating-model_p3_pred)^2
+print(mse_part3)
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-size:1.10em;"><b><i>Assess performance of 4 in step (1)</i></b></span>
+
+MCMC MSE:
+```{r message=FALSE, warning=FALSE}
+require(MCMCpack)
+set.seed(1)
+
+model_p4 <- MCMChregress(fixed= Rating~kind+price+packing+weight+calorie, random= ~1+kind+price+packing+weight+calorie, group="respid", r=6,R=6*diag(6), data=train)
+
+#mcmc_pred = matrix("NA", nrow=87, ncol = 6)
+mcmc_pred = matrix("NA", nrow=87, ncol = 6)
+
+for (i in 1:87){
+    v1 <- model_p4$mcmc[,paste('b.(Intercept).', as.numeric(i), sep = '')]
+    v2 <- model_p4$mcmc[,paste('b.kind.', as.numeric(i), sep = '')]
+    v3 <- model_p4$mcmc[,paste('b.price.', as.numeric(i), sep = '')]
+    v4 <- model_p4$mcmc[,paste('b.packing.', as.numeric(i), sep = '')]
+    v5 <- model_p4$mcmc[,paste('b.weight.', as.numeric(i), sep = '')]
+    v6 <- model_p4$mcmc[,paste('b.calorie.', as.numeric(i), sep = '')]
+    
+    mcmc_pred[i,1] <- mean(model_p4$mcmc[1:1000, 1]) + mean(v1)
+    mcmc_pred[i,2] <- mean(model_p4$mcmc[1:1000, 2]) + mean(v2)
+    mcmc_pred[i,3] <- mean(model_p4$mcmc[1:1000, 3]) + mean(v3)
+    mcmc_pred[i,4] <- mean(model_p4$mcmc[1:1000, 4]) + mean(v4)
+    mcmc_pred[i,5] <- mean(model_p4$mcmc[1:1000, 5]) + mean(v5)
+    mcmc_pred[i,6] <- mean(model_p4$mcmc[1:1000, 6]) + mean(v6)
+}
+
+mcmc_pred <- apply(mcmc_pred, 2, as.numeric)
+
+test_new <- cbind(test)
+
+test_new$Pred <- mcmc_pred[,1]+test_new$kind*mcmc_pred[,2]+test_new$price*mcmc_pred[,3]
++test_new$packing*mcmc_pred[,4]+test_new$weight*mcmc_pred[,5]+test_new$calorie*mcmc_pred[,6]
+
+mse_part4 = mean(as.numeric(test_new$Rating)-test_new$Pred)^2
+
+print(mse_part4)
+```
+
+
+3. <span style="font-size:1.2em;"><b>Perform cluster analysis of each individual’s partworths to define Benefit segments. For this purpose, use the partworths from steps 1,3, or 4 that has the best predictions for the holdout data from step 2. (2 points)</b></span>
+
+Based on the question 2, the random effects model performed the best, and we will use its partworths. This is also the most general model. The linear mix effects (`lme4`) package did converge on a solution. Surprisingly, the MCMC model which should similute the outcome of a random effects model had a higher MSE score.
+
+```{r message=FALSE}
+# variable saved earlier
+randomeffect_part_worth1 <- cbind(mixedeffect_part_worth)
+# verify that it's a deep copy
+#tracemem(randomeffect_part_worth1)==tracemem(mixedeffect_part_worth)
+print(head(randomeffect_part_worth1))
+```
+
+Visualization 1 of Elbow Chart:
+```{r message=FALSE}
+require(tidyverse)
+# saved earlier
+set.seed(76)
+
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(randomeffect_part_worth1, k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 8
+k.values <- 1:8
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="Total within-clusters sum of squares")
+```
+
+Visualization of Elbow Chart:
+```{r}
+require(factoextra)
+set.seed(76)
+
+fviz_nbclust(randomeffect_part_worth1, kmeans, k.max = 8, method = "wss")
+```
+
+Based on the two elbow chart visuals, 4 clusters will be used. With so few people, as the the cluster size gets larger these clusters will mimic more like individuals. 
+
+```{r}
+# Compute k-means clustering with k = 2
+set.seed(76)
+clusters <- kmeans(randomeffect_part_worth1, 4, nstart = 20)
+print(clusters)
+```
+
+Plot on two dimensions:
+```{r}
+fviz_cluster(clusters, data = randomeffect_part_worth1)
+```
+
+Appending the cluster information to the people and will be used to in question 5:
+```{r}
+randomeffect_part_worth1$BenefitSegments <- as.factor(clusters$cluster)
+
+print(head(randomeffect_part_worth1))
+```
+
+4. <span style="font-size:1.2em;"><b>Build a simulator that takes as input 4 or 5 input concepts, and produces market share estimates.  Function caLogit can be used from package conjoint (2 points)</b></span>
+
+As mentioned prior in the "Data Exploration" section, the chocolate dataset already has some profiles that were not presented to people. These will be used in this question to calculate market shares estimates.
+
+```{r}
+print(head(csimp))
+```
+
+In using the `caLogit` function, we are able to calculate the market share for each of the 4 concepts. In our case we chose concepts that were not part of the 16 concepts presented to the 87 people. The market share estimations will sum to 100% as if those are the concepts available to the 87 people based on their preferences on the original 16 profiles. 
+```{r}
+simulator = caLogit(csimp, y=cpref,x=cprof)
+print(simulator)
+```
+
+5. <span style="font-size:1.2em;"><b>Summarize Segmentation results – Top 5 concepts for each segment. Provide attribute importance rankings for each segment. (2 points)</b></span>
+
+```{r}
+dim(randomeffect_part_worth1)
+```
+
+```{r}
+print(head(randomeffect_part_worth1))
+```
+
+```{r}
+randomeffect_part_worth2 <- cbind(randomeffect_part_worth1)
+
+# coefficients will sum to 0
+# adding the missing variable
+randomeffect_part_worth2$kind4 <- -(randomeffect_part_worth2$kind1+randomeffect_part_worth2$kind2+randomeffect_part_worth2$kind3)
+randomeffect_part_worth2$price3 <- -(randomeffect_part_worth2$price1+randomeffect_part_worth2$price2)
+randomeffect_part_worth2$packing2 <- -(randomeffect_part_worth2$packing1)
+randomeffect_part_worth2$weight3 <- -(randomeffect_part_worth2$weight1+randomeffect_part_worth2$weight2)
+randomeffect_part_worth2$calorie2 <- -(randomeffect_part_worth2$calorie1)
+
+# create an empty arrays
+kind_attri_imp <- vector()
+price_attri_imp <- vector()
+packing_attri_imp <- vector()
+weight_attri_imp <- vector()
+calorie_attri_imp <- vector()
+for (i in 1:nrow(randomeffect_part_worth2)){
+  kind_attri_imp <- c(kind_attri_imp, sum(abs(range(randomeffect_part_worth2[i,]$kind1,randomeffect_part_worth2[i,]$kind2,randomeffect_part_worth2[i,]$kind3, randomeffect_part_worth2[i,]$kind4))))
+  
+  price_attri_imp <- c(price_attri_imp, sum(abs(range(randomeffect_part_worth2[i,]$price1,randomeffect_part_worth2[i,]$price2, randomeffect_part_worth2[i,]$price3))))
+  
+  packing_attri_imp <- c(packing_attri_imp, sum(abs(range(randomeffect_part_worth2[i,]$packing1,randomeffect_part_worth2[i,]$packing2)))) 
+
+  weight_attri_imp <- c(weight_attri_imp, sum(abs(range(randomeffect_part_worth2[i,]$weight1,randomeffect_part_worth2[i,]$weight2, randomeffect_part_worth2[i,]$weight3)))) 
+  
+  calorie_attri_imp <- c(calorie_attri_imp, sum(abs(range(randomeffect_part_worth2[i,]$calorie1, randomeffect_part_worth2[i,]$calorie2)))) 
+  
+}
+randomeffect_part_worth3 <- cbind(randomeffect_part_worth2, kind_attri_imp, price_attri_imp, packing_attri_imp, weight_attri_imp, calorie_attri_imp)
+variable_names4 <- c("(Intercept)", "kind1", "kind2", "kind3", "price1", "price2", "packing1", "weight1", "weight2", "calorie1", "BenefitSegments", "kind4", "price3", "packing2", "weight3", "calorie2", "kind_attri_imp", "price_attri_imp", "packing_attri_imp", "weight_attri_imp", "calorie_attri_imp")
+
+colnames(randomeffect_part_worth3) <- variable_names4
+
+randomeffect_part_worth3$overall_attri_imp = randomeffect_part_worth3$kind_attri_imp+randomeffect_part_worth3$price_attri_imp+randomeffect_part_worth3$packing_attri_imp+randomeffect_part_worth3$weight_attri_imp+randomeffect_part_worth3$calorie_attri_imp
+
+print(head(randomeffect_part_worth3))
+
+```
+
+
+```{r}
+# Sort by BenefitSegments and then by overall attribute importance 
+
+df <- randomeffect_part_worth3[order(randomeffect_part_worth3$BenefitSegments, -randomeffect_part_worth3$overall_attri_imp),]
+df <- subset(df, select = c(BenefitSegments, kind_attri_imp, price_attri_imp, packing_attri_imp, weight_attri_imp, calorie_attri_imp, overall_attri_imp))
+
+BenefitSegment <- split(df, df$BenefitSegments)
+
+```
+
+Top profiles for cluster 1:
+```{r}
+print(head(BenefitSegment[[1]]))
+```
+
+Top profiles for cluster 2:
+```{r}
+print(head(BenefitSegment[[2]]))
+```
+
+Top profiles for cluster 3:
+```{r}
+print(head(BenefitSegment[[3]]))
+```
+
+Top profiles for cluster 4:
+```{r}
+print(head(BenefitSegment[[4]]))
+```
