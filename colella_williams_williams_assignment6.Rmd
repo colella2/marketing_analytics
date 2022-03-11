@@ -1,0 +1,493 @@
+---
+title: "Assignment 6"
+author: "Colella, Williams, and Williams"
+date: "June 13, 2020"
+output: 
+  html_document:
+    theme: cerulean
+    highlight: tango
+    code_folding: none
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(sqldf)
+library(ROSE)
+library(DataExplorer)
+library(MASS)
+DIGITAL_Retail_Digital_Media_Data <- read_excel("C:/Users/1906g/Desktop/MScA/Marketing Analytics/Assignment 6/DIGITAL Retail Digital Media Data.xlsx", col_types = c("date", "text", "text", "text", "text", "text", "text", "numeric", "numeric", "numeric", "numeric"))
+df <- DIGITAL_Retail_Digital_Media_Data
+df <- rename(df, Website_Network_Name = "Website / Network Name")
+df[3:7] <- lapply(df[3:7], factor)
+```
+
+### EDA General{.tabset}
+
+*The Units Sold Distribution tab shows the distribution of Units Sold.  The data is extremely imbalanced.  There are 18,963 records with 0 units sold.  There are 772 records with one or more units sold.*
+
+*The dataset has 0 missing values.*
+
+#### DataStructure
+
+```{r}
+str(df)
+```
+
+
+#### View of Data
+
+```{r}
+head(df)
+```
+
+
+#### Units Sold Distribution
+
+```{r}
+units_sold_dist <- sqldf("select Units_sold, count(*) from df group by Units_sold")
+units_sold_dist
+```
+
+
+#### Missing Data
+
+```{r}
+plot_missing(df)
+```
+
+
+
+### EDA: Levels Distribution{.tabset}
+
+*As can be seen on the Content_Category tab, Behavioral Targeting and Advertising Nets accounted for the bulk of the content categories.  The advertising consisted of equal distributions between Laptops and Desktops. There was a nice mix of creative components with Best Value, Better Products, and the Save Money Green Logo at the top 3.  The 728X90 banner ad size was the dominant ad dimension.  The Collective Media network and the Microsoft DRIVEpm network were the top two networks that showed the display ads.*
+
+#### Content_Category
+
+```{r}
+bar1 <- ggplot(data = df) + geom_bar(mapping = aes(x = Content_Category)) + coord_flip()
+bar1
+```
+
+
+
+
+#### Creative_Product
+
+```{r}
+bar2 <- ggplot(data = df) + geom_bar(mapping = aes(x = Creative_Product)) + coord_flip()
+bar2
+```
+
+
+
+#### Creative
+
+```{r}
+bar3 <- ggplot(data = df) + geom_bar(mapping = aes(x = Creative)) + coord_flip()
+bar3
+```
+
+
+
+#### Creative_Size
+
+```{r}
+bar4 <- ggplot(data = df) + geom_bar(mapping = aes(x = Creative_Size)) + coord_flip()
+bar4
+```
+
+
+
+#### Website_Network_Name
+
+```{r}
+bar5 <- ggplot(data = df) + geom_bar(mapping = aes(x = Website_Network_Name)) + coord_flip()
+bar5
+```
+
+
+```{r include=FALSE}
+df <- mutate(df, ctr = Clicks_Recorded/Impressions_Delivered)
+df <- mutate(df, conversion_rate = Units_sold/Clicks_Recorded)
+df <- mutate(df, cpc = Media_Cost/Clicks_Recorded)
+df <- mutate(df, cpm = (Media_Cost/Impressions_Delivered) * 1000)
+```
+
+
+
+### EDA: Conversion,Click Through Plots{.tabset}
+
+*For the time series charts, the number of daily click throughs were up and down between roughly 100,000 and 300,000.  However, in August, there was a strong increase in ad click throughs.  This indicates there could have been in increase in ad spend for this period.  We would hope there was an increase in conversions during this period.*
+
+*Viewing the Spend By Day tab, as suspected, you'll see there was an increase in spend activity during August that affected the number of click throughs.*
+
+*Although there appears to be a slight increase in the number of conversions during the month of August, it wasn't as pronounced as the number of click throughs.  This may indicate that the conversion rate decreased since there was an increase in impressions and clicks but not a similar increase in conversions.  This would also indicate an increase in cost per acquisition since spend increased but conversions did not increase at the same level.*
+
+#### Click Throughs By Day
+
+```{r}
+require(scales)
+clicks_by_day <- df %>% group_by(Date) %>% summarise(clicks_throughs = sum(Clicks_Recorded))
+ggplot(data = clicks_by_day, aes(Date, clicks_throughs)) + 
+  geom_line(size=1) + scale_y_continuous(labels = comma)
+```
+
+
+
+#### Media Spend By Day
+
+```{r}
+spend_by_day <- df %>% group_by(Date) %>% summarise(spend = sum(Media_Cost))
+ggplot(data = spend_by_day, aes(Date, spend)) + 
+  geom_line(size=1)
+```
+
+
+
+#### Conversions By Day
+
+```{r}
+conversions_by_day <- df %>% group_by(Date) %>% summarise(conversions = sum(Units_sold))
+ggplot(data = conversions_by_day, aes(Date, conversions)) + 
+  geom_line(size=1)
+```
+
+
+
+
+
+
+
+### Modeling Approach: Conversions{.tabset}
+
+*Initially we implemented the Poisson regression for conversions.  We tried several models with different predictor variables.  As can be seen on each tab, the Rsquared values are between 0.40 and 0.50.  In an attempt to increase Rsquared, we tried to address the unbalanced conversion variable.  As stated in the EDA section, there are over 18,000 conversions of 0 and less than 1,000 conversions greater than 0.*
+
+*Several techniques were attempted.  These attempts are highlighted in the "Optimize Rsquared for Conversions" section.  We balanced the data by under sampling, over sampling, and both over and under sampling.  This gave us three new datasets.  We then implemented Poisson regression on each of these datasets.  However the Rsquared value did not improve.*
+
+*In addition to this, we also removed all records where there were zero conversions.  The model results for this dataset performed worse than the over sampling, under sampling, as well as the combined over and under sampling datasets.*
+
+*After these initial poor results, we considered how this model would eventually be used in production.  We created Model 5.  Knowing that most of the information that would be available to us in production would be categorical variables, we also wanted to see if we could incorporate the continuous variables. "Media_Cost" is a normalized variable at a per 1000 rate. This variable can be included in production since it ties closely to our categorical variables.  Even though conversion rates are not provided in production, if you tie that metric to a website, you can create an interaction term, feature engineering.  In production, we can impute the historical conversion rates by website, so we can incorporate it into our prediction on holdout data.  Note that conversion rate is not used as an independent variable by itself: we are looking at the interaction between it and the categorical website variable.*
+
+*Therefore, we believe the inclusion of media cost and the interaction between the website categorical variable and historical response rates is feasible.*
+
+
+
+#### Model 1
+
+```{r}
+mod1 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, data = df, family = "poisson")
+1-(mod1$deviance/mod1$null.deviance)
+summary(mod1)
+
+```
+
+
+#### Model 2
+
+```{r}
+mod2 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size, data = df, family = "poisson")
+1-(mod2$deviance/mod2$null.deviance)
+summary(mod2)
+
+```
+
+
+#### Model 3
+
+```{r}
+mod3 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative, data = df, family = "poisson")
+1-(mod3$deviance/mod3$null.deviance)
+summary(mod3)
+
+```
+
+
+#### Model 4
+
+```{r}
+mod4 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Clicks_Recorded, data = df, family = "poisson")
+1-(mod4$deviance/mod4$null.deviance)
+summary(mod4)
+
+```
+
+
+#### Model 5
+
+```{r}
+mod5 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+conversion_rate:Website_Network_Name, Media_Cost, data = df, family = "poisson")
+1-(mod5$deviance/mod5$null.deviance)
+summary(mod5)
+```
+
+
+
+
+### Modeling Approach: Click Throughs{.tabset}
+
+*The Click Through models performed well.  Rsquared for each of the models can be seen on each tab.  However we considered how this model would eventually be used in production.  We created Model 5.  Knowing that most of the information that would be available to us in production would be categorical variables, we also wanted to see if we could incorporate the continuous variables. "Media_Cost" is a normalized variable at a per 1000 rate. This variable can be included in production since it ties closely to our categorical variables.*
+
+*Therefore, we believe the inclusion of media cost is feasible.*
+
+
+
+
+#### Model 1
+
+```{r}
+mod1 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, data = df, family = "poisson")
+1-(mod1$deviance/mod1$null.deviance)
+summary(mod1)
+
+```
+
+
+#### Model 2
+
+```{r}
+mod2 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size, data = df, family = "poisson")
+1-(mod2$deviance/mod2$null.deviance)
+summary(mod2)
+
+```
+
+
+#### Model 3
+
+```{r}
+mod3 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative, data = df, family = "poisson")
+1-(mod3$deviance/mod3$null.deviance)
+summary(mod3)
+
+```
+
+
+#### Model 4
+
+```{r}
+mod4 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Units_sold, data = df, family = "poisson")
+1-(mod4$deviance/mod4$null.deviance)
+summary(mod4)
+
+```
+
+
+
+#### Model 5
+
+```{r}
+mod5 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, Media_Cost, data = df, family = "poisson")
+1-(mod5$deviance/mod5$null.deviance)
+summary(mod5)
+```
+
+
+
+
+
+
+### Optimize Rsquared for Conversions{.tabset}
+
+*In this section, you will find the techniques used in the attempt to find a better Rsquared for the Conversion models.  As you can see, these techniques did not improve Rsquared.  We decided to use the original dataset for modeling.*
+
+#### Undersampling
+
+```{r}
+df$Units_sold2 <- ifelse(df$Units_sold > 0, 1, 0)
+df_under <- ovun.sample(Units_sold2 ~ ., data = df, method = "under", N = 1544)$data
+
+#Model 1
+mod1 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, data = df_under, family = "poisson")
+1-(mod1$deviance/mod1$null.deviance)
+
+#Model 2
+mod2 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size, data = df_under, family = "poisson")
+1-(mod2$deviance/mod2$null.deviance)
+
+#Model 3
+mod3 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative, data = df_under, family = "poisson")
+1-(mod3$deviance/mod3$null.deviance)
+
+#Model 4
+mod4 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Clicks_Recorded, data = df_under, family = "poisson")
+1-(mod4$deviance/mod4$null.deviance)
+
+```
+
+
+#### Oversampling
+
+
+
+```{r}
+df_over <- ovun.sample(Units_sold2 ~ ., data = df, method = "over", N = 37926)$data
+
+#Model 1
+mod1 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, data = df_over, family = "poisson")
+1-(mod1$deviance/mod1$null.deviance)
+
+#Model 2
+mod2 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size, data = df_over, family = "poisson")
+1-(mod2$deviance/mod2$null.deviance)
+
+#Model 3
+mod3 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative, data = df_over, family = "poisson")
+1-(mod3$deviance/mod3$null.deviance)
+
+#Model 4
+mod4 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Clicks_Recorded, data = df_over, family = "poisson")
+1-(mod4$deviance/mod4$null.deviance)
+```
+
+
+
+#### Both Under and Over
+
+
+
+```{r}
+df_both <- ovun.sample(Units_sold2 ~ ., data = df, method = "both", p=0.5, N = 10000, seed = 1)$data
+
+
+#Model 1
+mod1 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, data = df_both, family = "poisson")
+1-(mod1$deviance/mod1$null.deviance)
+
+#Model 2
+mod2 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size, data = df_both, family = "poisson")
+1-(mod2$deviance/mod2$null.deviance)
+
+#Model 3
+mod3 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative, data = df_both, family = "poisson")
+1-(mod3$deviance/mod3$null.deviance)
+
+#Model 4
+mod4 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Clicks_Recorded, data = df_both, family = "poisson")
+1-(mod4$deviance/mod4$null.deviance)
+```
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+df <- mutate(df, ctr = Clicks_Recorded/Impressions_Delivered)
+df <- mutate(df, conversion_rate = Units_sold/Clicks_Recorded)
+df <- mutate(df, cpc = Media_Cost/Clicks_Recorded)
+df <- mutate(df, cpm = (Media_Cost/Impressions_Delivered) * 1000)
+```
+
+
+
+
+### Results: Click Throughs{.tabset}
+
+*Out of several models, Model 5 was selected for both the Click Through and Conversion models.  Now that we have our models selected, we conducted a train/test split to see how the plots looked for predictions vs actual values.*
+
+*For the Click Through model, you can see that Rsquared is roughly 0.95.  On the Predictions on Holdout tab, you can see that that data points hover around the mean line plot.  Since we know that Rsquared was 0.95, this is expected.*
+
+*Ultimately, what this says is, we can predict the number of click throughs based on the combination of Content_Category, Creative_Product, Creative, Creative_Size, Website_Network_Name, and Media_Cost.*
+
+
+#### Modeling on Train Set
+
+```{r}
+n <- nrow(df)
+shuffled_df <- df[sample(n),]
+train_indices <- 1:round(0.7*n)
+train <- shuffled_df[train_indices,]
+test_indices <- (round(0.7*n) + 1):n
+holdout <- shuffled_df[test_indices,]
+
+mod5 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name, Media_Cost, data = train, family = "poisson")
+1-(mod5$deviance/mod5$null.deviance)
+summary(mod5)
+#mod4 <- glm(Clicks_Recorded ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Units_sold, data = train, family = poisson(link = "log"))
+
+```
+
+
+
+
+
+
+#### Predictions on Holdout
+
+```{r}
+modpred <- predict(object = mod5, newdata=holdout[,c(3:7,10)], type="response", se=TRUE)
+p0 <- modpred$fit
+holdout$pred <- p0
+
+ggplot(holdout, aes(pred, Clicks_Recorded)) + geom_point() + geom_smooth()
+```
+
+
+
+
+### Results: Conversions{.tabset}
+
+*Out of several models, Model 5 was selected for both the Click Through and Conversion models.  Now that we have our models selected, we conducted a train/test split to see how the plots looked for predictions vs actual values.*
+
+*For the Conversion model, you can see that Rsquared is roughly 0.94.  On the Predictions on Holdout tab, you can see that that data points hover around the mean line plot.  There is also an indication of dispersion.  Since we know that Rsquared is roughly 0.94, this is expected.*
+
+*Ultimately, what this says is, we can predict the number of conversions based on the combination of Content_Category, Creative_Product, Creative, Creative_Size, Media_Cost, and the interaction between conversion_rate:Website_Network_Name.*
+
+
+
+#### Modeling on Train Set
+
+```{r}
+n <- nrow(df)
+shuffled_df <- df[sample(n),]
+train_indices <- 1:round(0.7*n)
+train <- shuffled_df[train_indices,]
+test_indices <- (round(0.7*n) + 1):n
+holdout <- shuffled_df[test_indices,]
+
+mod5 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+Creative_Size+conversion_rate:Website_Network_Name, Media_Cost, data = train, family = "poisson")
+
+1-(mod5$deviance/mod5$null.deviance)
+summary(mod5)
+#mod4 <- glm(Units_sold ~ Content_Category+Creative_Product+Creative+ Creative_Size+Website_Network_Name+Impressions_Delivered+Clicks_Recorded, data = train, family = "poisson")
+
+```
+
+
+
+
+```{r}
+head(holdout)
+```
+
+
+
+#### Predictions on Holdout
+
+```{r}
+modpred <- predict(object = mod5, newdata=holdout[,c(3:7,10,13)], type="response", se=TRUE)
+p0 <- modpred$fit
+holdout$pred <- p0
+
+ggplot(holdout, aes(pred, Units_sold)) + geom_point() + geom_smooth()
+
+```
+
+
+
+### Conclusions{.tabset}
+
+* We decided to use Poisson becasue of three reasons: a) the response variables are counts, b) Units_sold is a rare event where there are a lot of zeroes and a relatively few rows of sales, c) the actual occurences across time are unrelated or iid.
+
+* One flaw is that each time we run the model, we generate a new holdout.  We then compare models with different train/test.  We could have addressed this by creating the holdout once or using a random seed.
+
+* If this model is used in production, the new unseen data will likely only contain categorical variables.  Our model 5 assumes that Media_Cost can be incorporated with this data, along with the ability to use historical conversion_rate with the Website_Network_Name to create a new feature engineered interactive term.  The conversion_rate and Website_Network_Name end up not being used as independent variables.
+
+* Finally, after going through this exercise, it dawned on us that we could have approached this as a logistic regression problem if we transformed the conversions variable into either conversion(1) or non-conversion(0).  Currently the conversion variable has a range from 0 through 15 but most of the values are already 0 or 1.  
+
+
+
